@@ -10,7 +10,8 @@ app.get('/',(req ,res)=>{
 
 app.use('/api/recordings',require('./routes/recordingRoutes'));
 //error handling middleware
-app.use((req ,res,next,err)=>{
+app.use((err,req ,res,next)=>{
+    console.log(err.stack);
     res.status(500).send({message: err.message});
 })
 

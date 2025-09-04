@@ -3,7 +3,7 @@ const app = express();
 app.use(express.json());
 const cors = require('cors');
 app.use(cors());
-
+require('./config/database');
 app.get('/',(req ,res)=>{
     res.send('Backend is running');
 })

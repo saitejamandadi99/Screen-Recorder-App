@@ -1,64 +1,67 @@
 const db = require('../config/database');
 const cloudinary = require('../config/cloudinary');
-const fs = require('fs') //file system to delete the file after uploading to cloudinary 
+const fs = require('fs'); // to delete local files
 
-//upload the recording to cloudinary and save the details to sqlite database
-const uploadRecording = async (req,res)=>{
-    try{
-        const {filename,filepath,filesize} = req.body;
-        if (!filename || !filepath || !filesize){
-            return res.status(400).send({message:'All fields are required'});
-        }
-        const result = await cloudinary.uploader.upload(filepath,{resource_type:'video'});
-        fs.unlinkSync(filepath); // to delete the file after uploading to cloudinary
-        db.run(`insert into recordingsSaves (filename,filepath,filesize) values(?,?,?)`,
-        [filename,result.secure_url,filesize],(err)=>{
-            if(err){
-                return res.status(500).send({message:err.message});
-            }else{
-                return res.status(201).send({message:'Recording uploaded successfully',data:{id:this.lastID,filename,filepath:result.secure_url,filesize}});
-            }
-        })
-    }
-    catch(err){
-        res.status(500).send({message:err.message});
-    }
+// Upload recording to Cloudinary and save metadata in DB
+const uploadRecording = async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: 'File is required' });
 
-}
+    const { path: filepath, originalname: filename, size: filesize } = file;
 
-//get all recording from the database
-const getAllRecording = (req , res)=>{
-    db.all(`select * from recordingsSaves order by createdAt desc`,[],(err,rows)=>{
-        if(err){
-            return res.status(500).send({message:err.message});
-        }
-        return res.status(200).send({data:rows});
-    })
-}
-//get recording by id from the database
-const getRecordingById = (req, res)=>{
-    const id = req.params.id; 
-    if (!id){
-        return res.status(400).send({message:'ID is required'});
-    }
-    db.get(`select * from recordingsSaves where id = ?`,[id],(err,row)=>{ 
-        if(err){
-            return res.status(500).send({message:err.message});
-        }
-        if(!row){
-            return res.status(404).send({message:'Recording not found'});
-        }
-        return res.status(200).send({data:row});
-    });
-}
+    // Upload the file to Cloudinary
+    const result = await cloudinary.uploader.upload(filepath, { resource_type: 'video' });
 
-//delete recording by id from the database
+    // Deleting local temp file
+    fs.unlinkSync(filepath);
 
-const deleteRecordingsById = (req, res) => {
-  const id = req.params.id;
-  if (!id) {
-    return res.status(400).json({ message: 'ID is required' });
+    // Save metadata in SQLite
+    db.run(
+      `INSERT INTO recordingsSaves (filename, filepath, filesize) VALUES (?, ?, ?)`,
+      [filename, result.secure_url, filesize],
+      function (err) {
+        if (err) return res.status(500).json({ message: err.message });
+        res.status(201).json({
+          message: 'Recording uploaded successfully',
+          data: {
+            id: this.lastID,
+            filename,
+            filepath: result.secure_url,
+            filesize
+          }
+        });
+      }
+    );
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
+};
+
+// Get all recordings
+const getAllRecordings = (req, res) => {
+  db.all(`SELECT * FROM recordingsSaves ORDER BY createdAt DESC`, [], (err, rows) => {
+    if (err) return res.status(500).json({ message: err.message });
+    res.status(200).json({ data: rows });
+  });
+};
+
+// Get recording by ID
+const getRecordingById = (req, res) => {
+  const id = req.params.id;
+  if (!id) return res.status(400).json({ message: 'ID is required' });
+
+  db.get(`SELECT * FROM recordingsSaves WHERE id = ?`, [id], (err, row) => {
+    if (err) return res.status(500).json({ message: err.message });
+    if (!row) return res.status(404).json({ message: 'Recording not found' });
+    res.status(200).json({ data: row });
+  });
+};
+
+// Delete recording by ID
+const deleteRecordingById = (req, res) => {
+  const id = req.params.id;
+  if (!id) return res.status(400).json({ message: 'ID is required' });
 
   db.get(`SELECT * FROM recordingsSaves WHERE id = ?`, [id], async (err, row) => {
     if (err) return res.status(500).json({ message: err.message });
@@ -66,24 +69,25 @@ const deleteRecordingsById = (req, res) => {
 
     const filepath = row.filepath;
 
-    // Extracting public_id safely
+    // Robust extraction of public_id from Cloudinary URL
     let publicId;
     try {
-      const parts = filepath.split('/');
-      const filename = parts[parts.length - 1]; //to get last part of URL
-      publicId = filename.split('.')[0]; // remove extension
+      // Remove query params if any
+      const urlWithoutQuery = filepath.split('?')[0];
+      // Get last part after '/' and remove extension
+      publicId = urlWithoutQuery.split('/').pop().split('.')[0];
     } catch {
       return res.status(500).json({ message: 'Invalid file path' });
     }
 
     try {
-      // Delete the file  from Cloudinary
+      // Delete from Cloudinary
       await cloudinary.uploader.destroy(publicId, { resource_type: 'video' });
 
-      // Deleting from DB
+      // Delete from SQLite
       db.run(`DELETE FROM recordingsSaves WHERE id = ?`, [id], (err) => {
         if (err) return res.status(500).json({ message: err.message });
-        return res.status(200).json({ message: 'Recording deleted successfully' });
+        res.status(200).json({ message: 'Recording deleted successfully' });
       });
     } catch (err) {
       return res.status(500).json({ message: err.message });
@@ -91,4 +95,9 @@ const deleteRecordingsById = (req, res) => {
   });
 };
 
-module.exports = { uploadRecording, getAllRecording, getRecordingById, deleteRecordingsById };
+module.exports = {
+  uploadRecording,
+  getAllRecordings,
+  getRecordingById,
+  deleteRecordingById
+};

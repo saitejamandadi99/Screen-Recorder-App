@@ -42,6 +42,7 @@ const uploadRecording = async (req, res) => {
 const getAllRecordings = (req, res) => {
   db.all(`SELECT * FROM recordingsSaves ORDER BY createdAt DESC`, [], (err, rows) => {
     if (err) return res.status(500).json({ message: err.message });
+    if( rows.length === 0) return res.status(404).json({ message: 'No recordings found' });
     res.status(200).json({ data: rows });
   });
 };
